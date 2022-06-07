@@ -1,0 +1,96 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: CF Template to create the first security group
+
+Parameters:
+  OwnerName:
+    Default: Girtsfreimanis 
+    Type: String
+    Description: Enter your name (no spaces)
+
+  InstanceTypeParameter:
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - m1.small
+    Description: <
+      Enter t2.micro or m1.small.
+      Default is t2.micro as it is included in the Free Tier.
+
+Resources:
+  FirstSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: The first security group
+      GroupName: !Sub "${OwnerName}-sg"
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: Allows SSH from anywhere
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+          Description: Allows to access Jenkins from anywhere
+      VpcId: vpc-029c4e59b6eaa4f3a
+      Tags:
+        - Key: "CreatedBy"
+          Value:
+            Ref: OwnerName
+  FirstEC2Instance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      IamInstanceProfile: SSMRole
+      ImageId: "ami-0c1bc246476a5572b"
+      KeyName: student
+      InstanceType:
+        Ref: InstanceTypeParameter
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+          DeviceIndex: "0"
+          GroupSet:
+            - Ref: FirstSG
+          SubnetId: "subnet-08e2c3f1a9abf2ae6"
+      Tags:
+        - Key: "CreatedBy"
+          Value:
+            Ref: OwnerName
+        - Key: "Name"
+          Value: !Sub "${OwnerName}-cf-instance"
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -xe
+            sudo yum update -y
+            sudo yum upgrade -y
+            sudo amazon-linux-extras install epel java-openjdk11 -y
+            cd /opt
+            sudo wget https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-9.4.0.54424.zip
+            sudo unzip /opt/sonarqube-9.4.0.54424.zip
+            sudo chown -R sonaradmin:sonaradmin /opt/sonarqube-9.4.0.54424
+            sudo useradd sonaradmin
+            sudo su
+            su - sonaradmin
+            cd /opt/sonarqube-9.4.0.54424/bin/linux-x86-64
+            ./sonar.sh start
+            sudo yum install -y jenkins
+            sudo systemctl daemon-reload
+            sudo systemctl start jenkins
+            sudo systemctl enable jenkins
+
+Outputs:
+  JenkinsUrl:
+    Description: Jenkins URL
+    Value: !Sub
+      - http://${PublicIP}:8080
+      - {PublicIP: !GetAtt FirstEC2Instance.PublicIp}
